@@ -24,8 +24,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/weather", weatherRoutes);
 app.use("/api/favorites", favoritesRoutes);
 
-// Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+// Export the app as a serverless function handler
+module.exports = (req, res) => {
+  app(req, res);
+};
