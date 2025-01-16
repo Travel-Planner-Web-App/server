@@ -3,7 +3,7 @@ const cors = require("cors");
 require("dotenv").config();
 
 const weatherRoutes = require("./routes/weather");
-const favoritesRoutes = require("./routes/favorites");
+// const favoritesRoutes = require("./routes/favorites");
 const authRoutes = require("./routes/auth");
 
 const app = express();
@@ -22,7 +22,7 @@ app.use(express.json());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/weather", weatherRoutes);
-app.use("/api/favorites", favoritesRoutes);
+// app.use("/api/favorites", favoritesRoutes);
 
 // Export the app as a serverless function handler
 module.exports = (req, res) => {
