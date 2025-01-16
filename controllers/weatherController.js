@@ -3,21 +3,96 @@ require("dotenv").config();
 
 const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
 
-// Keep the existing weatherActivities database...
+// Weather activities database
 const weatherActivities = {
-  // ... (previous weatherActivities object remains the same)
+  clear: {
+    indoor: ["Yoga", "Cooking", "Board Games"],
+    outdoor: ["Running", "Hiking", "Picnic"],
+  },
+  rain: {
+    indoor: ["Reading", "Watching Movies", "Painting"],
+    outdoor: ["Walking with an umbrella"],
+  },
+  clouds: {
+    indoor: ["Gym", "DIY Projects", "Baking"],
+    outdoor: ["Cycling", "Photography"],
+  },
 };
 
-// Helper function to map weather conditions (keep existing function)
+// Helper function to map weather conditions
 const mapWeatherCondition = (condition) => {
   condition = condition.toLowerCase();
   if (condition.includes("clear") || condition.includes("sun")) return "clear";
   if (condition.includes("rain") || condition.includes("drizzle")) return "rain";
   if (condition.includes("cloud")) return "clouds";
-  return "clear"; // default to clear if no match
+  return "clear"; // Default to clear if no match
 };
 
-// Enhanced weather function with 7-day forecast
+// Helper function to aggregate and process data
+const processForecastData = (forecastData) => {
+  const dailySummary = {};
+  
+  forecastData.forEach((entry) => {
+    const date = new Date(entry.dt * 1000).toISOString().split('T')[0];
+    if (!dailySummary[date]) {
+      dailySummary[date] = {
+        temperatures: [],
+        humidities: [],
+        windSpeeds: [],
+        conditions: [],
+        rainProbabilities: [],
+      };
+    }
+
+    const dayData = dailySummary[date];
+    dayData.temperatures.push(entry.main.temp);
+    dayData.humidities.push(entry.main.humidity);
+    dayData.windSpeeds.push(entry.wind.speed);
+    dayData.conditions.push(entry.weather[0].description);
+    if (entry.pop !== undefined) {
+      dayData.rainProbabilities.push(entry.pop * 100);
+    }
+  });
+
+  return Object.keys(dailySummary).slice(0, 7).map((date) => {
+    const data = dailySummary[date];
+    const mostCommonCondition = data.conditions.sort(
+      (a, b) =>
+        data.conditions.filter((v) => v === a).length -
+        data.conditions.filter((v) => v === b).length
+    ).pop();
+
+    return {
+      date,
+      weather: {
+        temperature: {
+          max: Math.max(...data.temperatures),
+          min: Math.min(...data.temperatures),
+        },
+        humidity: Math.round(
+          data.humidities.reduce((a, b) => a + b, 0) / data.humidities.length
+        ),
+        windSpeed: Math.round(
+          data.windSpeeds.reduce((a, b) => a + b, 0) / data.windSpeeds.length
+        ),
+        condition: mostCommonCondition,
+        rainProbability: Math.round(
+          data.rainProbabilities.reduce((a, b) => a + b, 0) /
+            data.rainProbabilities.length
+        ),
+      },
+      activities: {
+        weatherType: mapWeatherCondition(mostCommonCondition),
+        suggestions: weatherActivities[mapWeatherCondition(mostCommonCondition)] || {
+          indoor: [],
+          outdoor: [],
+        },
+      },
+    };
+  });
+};
+
+// Enhanced weather function with aggregated 7-day forecast
 const getWeather = async (req, res) => {
   const { location } = req.query;
 
@@ -26,7 +101,7 @@ const getWeather = async (req, res) => {
   }
 
   try {
-    // First, get coordinates for the location
+    // Get coordinates for the location
     const geoApiUrl = `http://api.openweathermap.org/geo/1.0/direct`;
     const geoResponse = await axios.get(geoApiUrl, {
       params: {
@@ -42,71 +117,19 @@ const getWeather = async (req, res) => {
 
     const { lat, lon, name } = geoResponse.data[0];
 
-    // Then, get 7-day forecast using One Call API
-    const forecastApiUrl = `https://api.openweathermap.org/data/3.0/onecall`;
+    // Get 5 Day / 3 Hour Forecast data
+    const forecastApiUrl = `https://api.openweathermap.org/data/2.5/forecast`;
     const forecastResponse = await axios.get(forecastApiUrl, {
       params: {
         lat,
         lon,
-        exclude: 'minutely,hourly,alerts',
         appid: WEATHER_API_KEY,
         units: 'metric',
       },
     });
 
-    // Process the 7-day forecast
-    const dailyForecasts = forecastResponse.data.daily.slice(0, 7).map(day => {
-      const weatherType = mapWeatherCondition(day.weather[0].description);
-      
-      // Get activities for this weather type
-      let activities = JSON.parse(JSON.stringify(weatherActivities[weatherType])) || {
-        indoor: [],
-        outdoor: [],
-      };
+    const dailyForecasts = processForecastData(forecastResponse.data.list);
 
-      // Apply temperature-based filters
-      if (day.temp.max > 30) {
-        activities.outdoor = activities.outdoor.filter(
-          (activity) => activity.intensity !== "high"
-        );
-      } else if (day.temp.max < 5) {
-        activities.outdoor = activities.outdoor.filter(
-          (activity) => activity.intensity === "high"
-        );
-      }
-
-      // Apply wind-based filters
-      if (day.wind_speed > 20) {
-        activities.outdoor = activities.outdoor.filter(
-          (activity) => !["Cycling", "Photography"].includes(activity.name)
-        );
-      }
-
-      return {
-        date: new Date(day.dt * 1000).toISOString().split('T')[0],
-        weather: {
-          temperature: {
-            max: day.temp.max,
-            min: day.temp.min,
-            morning: day.temp.morn,
-            afternoon: day.temp.day,
-            evening: day.temp.eve,
-            night: day.temp.night,
-          },
-          humidity: day.humidity,
-          windSpeed: day.wind_speed,
-          condition: day.weather[0].description,
-          rainProbability: day.pop * 100, // Convert to percentage
-          uvi: day.uvi,
-        },
-        activities: {
-          weatherType,
-          suggestions: activities,
-        },
-      };
-    });
-
-    // Return combined weather and activity data
     res.status(200).json({
       location: {
         name,
@@ -114,12 +137,6 @@ const getWeather = async (req, res) => {
           latitude: lat,
           longitude: lon,
         },
-      },
-      current: {
-        temperature: forecastResponse.data.current.temp,
-        humidity: forecastResponse.data.current.humidity,
-        windSpeed: forecastResponse.data.current.wind_speed,
-        condition: forecastResponse.data.current.weather[0].description,
       },
       dailyForecasts,
     });
